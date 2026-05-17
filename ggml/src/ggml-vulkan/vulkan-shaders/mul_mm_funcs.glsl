@@ -314,24 +314,29 @@ void load_a_to_shmem(const uint pos_a, const uint row, const uint col, const uin
 #elif defined(DATA_A_Q6_K)
             const uint idx = pos_a + col * p.stride_a / LOAD_VEC_A + row;
 
-            const uint ib = idx / 128;                  // 2 values per idx
-            const uint iqs = idx % 128;                 // 0..127
+            const uint ib = idx / 64;                   // 4 values per idx
+            const uint iqs = (idx % 64) * 2;            // 0,2,4..126
 
             const uint n = iqs / 64;                    // 0,1
             const uint b = ((iqs % 64) / 32) * 4;       // 0,4
             const uint is_b = (iqs % 16) / 8;           // 0,1
             const uint qhshift = ((iqs % 64) / 16) * 2; // 0,2,4,6
             const uint is = 8 * n + qhshift + is_b;     // 0..15
-            const uint qsi = n * 32 + (iqs % 32);       // 0..63
-            const uint qhi = n * 16 + (iqs % 16);       // 0..31
+            const uint qsi = n * 32 + (iqs % 32);       // 0,2..30, 32,34..62
+            const uint qhi = n * 16 + (iqs % 16);       // 0,2..14, 16,18..30
 
             const float dscale = float(data_a[ib].d) * float(data_a[ib].scales[is]);
 
-            const uint ql = (uint(data_a_packed16[ib].ql[qsi]) >> b) & 0x0F0F;
-            const uint qh = (uint(data_a_packed16[ib].qh[qhi]) >> qhshift) & 0x0303;
-            const vec2 q = (vec2(unpack8(ql | (qh << 4)).xy) - 32) * dscale;
+            const uint ql0 = (uint(data_a_packed16[ib].ql[qsi    ]) >> b) & 0x0F0F;
+            const uint qh0 = (uint(data_a_packed16[ib].qh[qhi    ]) >> qhshift) & 0x0303;
+            const uint ql1 = (uint(data_a_packed16[ib].ql[qsi + 1]) >> b) & 0x0F0F;
+            const uint qh1 = (uint(data_a_packed16[ib].qh[qhi + 1]) >> qhshift) & 0x0303;
+            const vec2 q0 = (vec2(unpack8(ql0 | (qh0 << 4)).xy) - 32) * dscale;
+            const vec2 q1 = (vec2(unpack8(ql1 | (qh1 << 4)).xy) - 32) * dscale;
 
-            store_a(col, row * LOAD_VEC_A / 2, FLOAT_TYPEV2(q.x, q.y));
+            const uint k_pair = row * LOAD_VEC_A / 2;
+            store_a(col, k_pair,     FLOAT_TYPEV2(q0.x, q0.y));
+            store_a(col, k_pair + 1, FLOAT_TYPEV2(q1.x, q1.y));
 #elif defined(DATA_A_IQ1_S)
             const uint idx = pos_a + col * p.stride_a / LOAD_VEC_A + row;
 
